@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EdgeCheck — Snowboard Coach</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <path d="M2 24 L12 8 L18 16 L22 11 L30 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 27 H28" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+          </svg>
+          <span class="brand-name">EdgeCheck</span>
+        </div>
+        <span class="header-badge">On-device analysis · no upload</span>
+      </header>
+
+      <!-- ===================== UPLOAD ===================== -->
+      <section id="screen-upload" class="screen">
+        <div class="hero">
+          <h1>Coach-level feedback<br /><span class="hero-accent">from a phone clip.</span></h1>
+          <p class="hero-sub">
+            Drop a 5–30&nbsp;s clip of your riding. EdgeCheck extracts your body position frame by frame,
+            measures your form, and tells you the one thing to fix — all in your browser.
+          </p>
+        </div>
+
+        <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload a riding clip">
+          <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <path d="M12 16V4m0 0L7 9m5-5 5 5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <p class="dz-title">Drop a riding clip here <span>or click to browse</span></p>
+          <p class="dz-hint">MP4 / MOV · up to 60&nbsp;s · 200&nbsp;MB</p>
+          <input type="file" id="file-input" accept="video/mp4,video/quicktime,video/*" hidden />
+        </div>
+        <p id="upload-error" class="error-banner" hidden></p>
+
+        <div id="clip-setup" class="clip-setup" hidden>
+          <div class="setup-grid">
+            <div class="preview-wrap">
+              <video id="preview-video" class="preview-video" muted playsinline></video>
+              <span id="clip-meta" class="clip-meta"></span>
+            </div>
+            <div class="setup-form">
+              <h3 class="form-title">About this clip</h3>
+              <label class="field">
+                <span class="field-label">What are you riding?</span>
+                <select id="context-select">
+                  <option value="turns" selected>Turns — beginner / linking turns</option>
+                  <option value="carving">Carving</option>
+                  <option value="jump">Jump</option>
+                  <option value="rail">Rail / box</option>
+                  <option value="general">Just look at it</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">Your stance</span>
+                <select id="stance-select">
+                  <option value="auto" selected>Auto-detect</option>
+                  <option value="regular">Regular — left foot forward</option>
+                  <option value="goofy">Goofy — right foot forward</option>
+                </select>
+              </label>
+              <button id="analyze-btn" class="primary">
+                Analyze my riding
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14m0 0-6-6m6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="guide-chips">
+          <div class="chip"><strong>Film from the side</strong><span>10–20&nbsp;m away, camera still</span></div>
+          <div class="chip"><strong>Fill the frame</strong><span>Rider at least ¼ of frame height</span></div>
+          <div class="chip"><strong>One rider</strong><span>No people crossing the shot</span></div>
+        </div>
+
+        <div id="history-panel" hidden>
+          <h2 class="section-title">Recent analyses</h2>
+          <ul id="history-list" class="history-grid"></ul>
+        </div>
+      </section>
+
+      <!-- ===================== PROCESSING ===================== -->
+      <section id="screen-processing" class="screen" hidden>
+        <div class="processing-box">
+          <div class="proc-spinner" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor"><path d="M2 24 L12 8 L18 16 L22 11 L30 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h2>Analyzing your riding</h2>
+          <ol class="stage-list">
+            <li data-stage="pose"><span class="stage-dot"></span>Extracting body pose</li>
+            <li data-stage="metrics"><span class="stage-dot"></span>Measuring form metrics</li>
+            <li data-stage="keyframes"><span class="stage-dot"></span>Finding the worst moments</li>
+            <li data-stage="coaching"><span class="stage-dot"></span>Writing your coaching</li>
+          </ol>
+          <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+          <p id="processing-detail" class="proc-detail"></p>
+        </div>
+      </section>
+
+      <!-- ===================== RESULTS ===================== -->
+      <section id="screen-results" class="screen" hidden>
+        <div class="results-header">
+          <div class="score-ring-wrap">
+            <svg class="score-ring" viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="ring-bg" cx="60" cy="60" r="54" />
+              <circle id="ring-fill" class="ring-fill" cx="60" cy="60" r="54" />
+            </svg>
+            <div class="score-ring-label"><span id="score-num">–</span><span class="score-max">/100</span></div>
+          </div>
+          <div class="verdict">
+            <h2 id="verdict-title">—</h2>
+            <p id="verdict-sub" class="verdict-sub">—</p>
+            <p id="mock-badge" class="mock-badge" hidden>Offline rule-based coach — set <code>VITE_NEBIUS_API_KEY</code> for AI coaching</p>
+          </div>
+          <button id="analyze-another-btn" class="ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            New clip
+          </button>
+        </div>
+
+        <div class="results-grid">
+          <div class="player-column">
+            <div id="player-wrap" class="player-wrap">
+              <video id="result-video" class="result-video" muted playsinline controls></video>
+              <canvas id="overlay-canvas" class="overlay-canvas"></canvas>
+              <div class="timeline">
+                <div id="timeline-fill" class="timeline-fill"></div>
+                <div id="timeline-track" class="timeline-track"></div>
+              </div>
+            </div>
+            <div class="player-controls">
+              <span class="pc-label">Speed</span>
+              <div class="speed-group">
+                <button class="speed-btn" data-speed="1">1×</button>
+                <button class="speed-btn" data-speed="0.5">0.5×</button>
+                <button class="speed-btn" data-speed="0.25">0.25×</button>
+              </div>
+              <label class="overlay-toggle"><input type="checkbox" id="overlay-toggle" checked /><span>Skeleton</span></label>
+            </div>
+            <div id="keyframe-strip" class="keyframe-strip"></div>
+          </div>
+
+          <div class="analysis-column">
+            <h2 class="section-title">Form metrics</h2>
+            <div id="metric-cards" class="metric-cards"></div>
+            <h2 class="section-title">Coach's breakdown</h2>
+            <div id="coach-cards" class="coach-cards"></div>
+            <div id="camera-notes" class="camera-notes"></div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="app-footer">EdgeCheck · form metrics are estimates from 2D pose — ride within your ability.</footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
