@@ -16,9 +16,14 @@ mkdir -p public/models && curl -sSL -o public/models/pose_landmarker_full.task \
 ## Commands
 
 - `npm run dev` — dev server (includes `/api/nebius` proxy to Token Factory)
-- `npm test` — vitest unit tests (geometry, metrics, turn detection, coaching schema/mock)
-- `npm run build` — `tsc --noEmit` + `vite build`
+- `npm test` — vitest unit tests (geometry, metrics, turn detection, coaching schema/mock, cloud row mapping)
+- `npm run build` — `tsc --noEmit` + `vite build` (generates PWA service worker into `dist/`)
 - `npm run preview` — serve the production build
+- `python3 scripts/generate-icons.py` — regenerate PWA icons into `public/icons/`
+
+## PWA
+
+`vite-plugin-pwa` (see `vite.config.ts`): installable manifest + generated icons, app-shell precache, CacheFirst runtime caching for `/wasm` + `/models` (MediaPipe) and Google Fonts, NetworkOnly for `/api/nebius` and `supabase.co`. Service worker is only generated in production builds, not in dev.
 
 ## Architecture (two-stage pipeline, PRD §7)
 
@@ -54,12 +59,16 @@ Copy `.env.example` to `.env`. If `VITE_NEBIUS_API_KEY` is unset, the app runs f
 
 **Security note:** a pure client-side build ships the API key to browsers. Before any real deployment, put the LLM call behind a server-side proxy and drop the key from the client.
 
-## Supabase (M2, project created)
+## Supabase (auth + cloud history wired)
 
 - Project `edgecheck` (ref `sztwqkzkcjzhcgwpdyft`, us-west-1) in "leofattal's Org". Env vars in `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 - Schema: `public.analyses` (per-user analysis history, jsonb summary/coaching/keyframes) with RLS policies for select/insert/delete of own rows; private `clips` storage bucket with per-user-folder (`<uid>/...`) policies.
 - Generated types live in `src/types/supabase.ts`; regenerate after schema changes.
-- The app is NOT wired to Supabase yet — auth + cloud history sync is M2 work.
+- `src/db/client.ts` — env-configured client (returns null without env vars; auth UI stays hidden).
+- `src/db/auth.ts` — magic-link sign-in (`signInWithOtp`, redirect to `window.location.origin`), session subscription. **If magic links land on the wrong URL in a new environment, add that origin to Authentication → URL Configuration in the Supabase dashboard.**
+- `src/db/cloud.ts` — `analyses` upsert/list/delete + `cloudMergeLocals` (uploads localStorage-only entries on sign-in; ids are client-generated UUIDs so local and cloud rows share ids).
+- History behavior: signed out → localStorage only + "sign in to sync" hint; signed in → cloud is authoritative (locals merged in once). Delete removes from both. Video blobs are never uploaded — analyses/keyframes only.
+- Remaining M2 work: Stripe paywall, share links, clip upload to the `clips` bucket.
 
 ## Known v1 limitations
 

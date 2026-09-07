@@ -7,7 +7,11 @@ import { pickKeyframes } from "./analysis/keyframes";
 import { buildSummary, type RidingContext, type Stance } from "./coaching/summary";
 import { getCoaching } from "./coaching/llm";
 import { showResults, hideResults } from "./ui/results";
-import { loadHistory, saveToHistory, type HistoryEntry } from "./ui/history";
+import { loadHistory, saveToHistory, deleteHistoryEntry, type HistoryEntry } from "./ui/history";
+import { getSupabase } from "./db/client";
+import { onAuth, sendMagicLink, signOut } from "./db/auth";
+import { cloudSave, cloudDelete, cloudMergeLocals } from "./db/cloud";
+import type { Session } from "@supabase/supabase-js";
 
 const MAX_BYTES = 200 * 1024 * 1024;
 const MAX_DURATION_S = 60;
@@ -19,6 +23,7 @@ const $ = <T extends HTMLElement>(sel: string): T => {
 };
 
 let objectUrl: string | null = null;
+let session: Session | null = null;
 
 const STAGES = ["pose", "metrics", "keyframes", "coaching"] as const;
 type Stage = (typeof STAGES)[number];
@@ -48,6 +53,8 @@ function showError(msg: string): void {
   el.textContent = msg;
   el.hidden = false;
 }
+
+/* ===================== upload ===================== */
 
 function setupUpload(): void {
   const dropzone = $("#dropzone");
@@ -106,6 +113,8 @@ function handleFile(file: File): void {
   preview.onerror = () => showError("Couldn't decode this video. Try MP4 (H.264) — HEVC support varies by browser.");
 }
 
+/* ===================== analysis pipeline ===================== */
+
 async function runAnalysis(): Promise<void> {
   if (!objectUrl) return;
   const context = $<HTMLSelectElement>("#context-select").value as RidingContext;
@@ -113,7 +122,6 @@ async function runAnalysis(): Promise<void> {
 
   showScreen("#screen-processing");
   try {
-    // Working video element for sampling + capture (never displayed).
     const video = document.createElement("video");
     video.src = objectUrl;
     video.muted = true;
@@ -171,7 +179,10 @@ async function runAnalysis(): Promise<void> {
       keyframes,
     };
     saveToHistory(entry);
-    renderHistory();
+    if (session) {
+      cloudSave(entry, session.user.id).catch((err) => console.warn("cloud save failed", err));
+    }
+    void refreshHistory();
   } catch (err) {
     console.error(err);
     showScreen("#screen-upload");
@@ -179,12 +190,48 @@ async function runAnalysis(): Promise<void> {
   }
 }
 
-function renderHistory(): void {
-  const list = loadHistory();
+/* ===================== history ===================== */
+
+async function historyEntries(): Promise<HistoryEntry[]> {
+  if (!session) return loadHistory();
+  try {
+    return await cloudMergeLocals(loadHistory(), session.user.id);
+  } catch (err) {
+    console.warn("cloud history failed, falling back to local", err);
+    return loadHistory();
+  }
+}
+
+async function refreshHistory(): Promise<void> {
+  renderHistory(await historyEntries());
+}
+
+function renderSparkline(list: HistoryEntry[]): void {
+  const svg = $("#trend-spark") as unknown as SVGSVGElement & { hidden: boolean };
+  const scores = [...list].reverse().map((e) => e.coaching.overall_score);
+  if (scores.length < 2) {
+    svg.hidden = true;
+    return;
+  }
+  svg.hidden = false;
+  const min = Math.min(...scores) - 5;
+  const max = Math.max(...scores) + 5;
+  const pts = scores
+    .map((s, i) => `${(i / (scores.length - 1)) * 112 + 4},${32 - ((s - min) / (max - min)) * 28}`)
+    .join(" ");
+  svg.innerHTML = `
+    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${pts.split(" ").map((p) => `<circle cx="${p.split(",")[0]}" cy="${p.split(",")[1]}" r="2.5" fill="var(--accent)"/>`).join("")}`;
+}
+
+function renderHistory(list: HistoryEntry[]): void {
   const panel = $("#history-panel");
   const ul = $("#history-list");
   ul.innerHTML = "";
   panel.hidden = list.length === 0;
+  $("#history-sync-hint").hidden = list.length === 0 || session !== null;
+  renderSparkline(list);
+
   for (const e of list) {
     const li = document.createElement("li");
     li.className = "history-card";
@@ -197,7 +244,14 @@ function renderHistory(): void {
         <div class="hc-title">${date} · ${e.context}</div>
         <div class="hc-meta">${topFault}${e.coaching.mocked ? " · offline" : ""}</div>
       </div>
-      <span class="hc-score">${e.coaching.overall_score}</span>`;
+      <span class="hc-score">${e.coaching.overall_score}</span>
+      <button class="hc-delete" title="Delete analysis" aria-label="Delete analysis">✕</button>`;
+    li.querySelector(".hc-delete")!.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      deleteHistoryEntry(e.id);
+      if (session) cloudDelete(e.id).catch((err) => console.warn("cloud delete failed", err));
+      void refreshHistory();
+    });
     li.onclick = () => {
       hideResults();
       showResults({
@@ -213,14 +267,78 @@ function renderHistory(): void {
   }
 }
 
+/* ===================== auth ===================== */
+
+function setupAuth(): void {
+  const sb = getSupabase();
+  if (!sb) return; // auth UI stays hidden without env config
+  $("#auth-btn").hidden = false;
+
+  const modal = $("#auth-modal");
+  const open = () => {
+    modal.hidden = false;
+    $<HTMLInputElement>("#auth-email").focus();
+  };
+  const close = () => {
+    modal.hidden = true;
+    $("#auth-status").hidden = true;
+  };
+  $("#auth-btn").onclick = open;
+  $("#auth-close").onclick = close;
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) close();
+  });
+
+  $("#auth-send").addEventListener("click", async () => {
+    const email = $<HTMLInputElement>("#auth-email").value.trim();
+    const status = $("#auth-status");
+    if (!email) return;
+    try {
+      await sendMagicLink(email);
+      status.textContent = `Link sent to ${email} — click it to sign in. You can close this.`;
+      status.classList.remove("error");
+      status.hidden = false;
+    } catch (err) {
+      status.textContent = err instanceof Error ? err.message : "Couldn't send the link — try again.";
+      status.classList.add("error");
+      status.hidden = false;
+    }
+  });
+  $<HTMLInputElement>("#auth-email").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("#auth-send").click();
+  });
+
+  $("#signout-btn").addEventListener("click", () => void signOut());
+
+  onAuth((s) => {
+    session = s;
+    $("#auth-btn").hidden = s !== null;
+    $("#user-chip").hidden = s === null;
+    if (s) {
+      $("#user-email").textContent = s.user.email ?? "signed in";
+      $("#user-email").title = s.user.email ?? "";
+      close();
+      void refreshHistory();
+    } else {
+      renderHistory(loadHistory());
+    }
+  });
+}
+
+/* ===================== boot ===================== */
+
 function main(): void {
   setupUpload();
+  setupAuth();
   $("#analyze-btn").addEventListener("click", () => void runAnalysis());
   $("#analyze-another-btn").addEventListener("click", () => {
     hideResults();
     showScreen("#screen-upload");
   });
-  renderHistory();
+  void refreshHistory();
 }
 
 main();

@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EdgeCheck — Snowboard Coach</title>
+    <meta name="theme-color" content="#070b16" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,8 +23,29 @@
           </svg>
           <span class="brand-name">EdgeCheck</span>
         </div>
-        <span class="header-badge">On-device analysis · no upload</span>
+        <div class="header-right">
+          <span class="header-badge">On-device analysis · no upload</span>
+          <button id="auth-btn" class="ghost auth-btn" hidden>Sign in</button>
+          <div id="user-chip" class="user-chip" hidden>
+            <span id="user-email" class="user-email"></span>
+            <button id="signout-btn" class="chip-signout" title="Sign out">✕</button>
+          </div>
+        </div>
       </header>
+
+      <!-- auth modal -->
+      <div id="auth-modal" class="modal-backdrop" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-label="Sign in">
+          <button id="auth-close" class="modal-close" aria-label="Close">✕</button>
+          <h3 class="modal-title">Sign in to EdgeCheck</h3>
+          <p class="modal-sub">Magic link — no password. Your analyses sync across devices.</p>
+          <div id="auth-form">
+            <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" />
+            <button id="auth-send" class="primary">Email me a sign-in link</button>
+          </div>
+          <p id="auth-status" class="modal-status" hidden></p>
+        </div>
+      </div>
 
       <!-- ===================== UPLOAD ===================== -->
       <section id="screen-upload" class="screen">
@@ -86,7 +109,11 @@
         </div>
 
         <div id="history-panel" hidden>
-          <h2 class="section-title">Recent analyses</h2>
+          <div class="history-head">
+            <h2 class="section-title">Recent analyses</h2>
+            <svg id="trend-spark" class="trend-spark" viewBox="0 0 120 36" hidden aria-hidden="true"></svg>
+          </div>
+          <p id="history-sync-hint" class="history-sync-hint" hidden>Sign in to back up your history and sync across devices.</p>
           <ul id="history-list" class="history-grid"></ul>
         </div>
       </section>
